@@ -1,0 +1,43 @@
+
+[
+  {
+    "product_id": "DEMO-001",
+    "product_name": "DemoCompound Alpha",
+    "brand_name": "DemoBrand",
+    "category": "Demonstration",
+    "dosage_form": "Fictional tablet",
+    "ingredients": [
+      {
+        "name": "Fictional Ingredient A",
+        "strength": "100 mg (fictional)"
+      }
+    ],
+    "packaging": ["Demo pack of 10"],
+    "manufacturer": "Example Pharmaceutical Company",
+    "product_status": "active",
+    "approval_status": "pending",
+    "effective_date": null,
+    "description": "Fictional product for software testing only. Not a real medicine.",
+    "source_document_ids": []
+  },
+  {
+    "product_id": "DEMO-002",
+    "product_name": "DemoCompound Beta",
+    "brand_name": "DemoBrand",
+    "category": "Demonstration",
+    "dosage_form": "Fictional capsule",
+    "ingredients": [
+      {
+        "name": "Fictional Ingredient B",
+        "strength": "50 mg (fictional)"
+      }
+    ],
+    "packaging": ["Demo pack of 15"],
+    "manufacturer": "Example Pharmaceutical Company",
+    "product_status": "active",
+    "approval_status": "pending",
+    "effective_date": null,
+    "description": "Fictional product for software testing only. Not a real medicine.",
+    "source_document_ids": []
+  }
+]
