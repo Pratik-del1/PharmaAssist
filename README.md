@@ -86,10 +86,30 @@ pytest tests/test_products.py::test_get_product_by_id -v
 
 ## Current development status
 
+**Completed: initial backend milestone**
+
+- FastAPI application with root and health endpoints
+- Product catalogue API (list, search, get by ID)
+- Pydantic product schemas
+- Fictional demo product data in JSON
+- 9 passing pytest tests
+- Runs on Python 3.9
+
 | Phase | Status |
 |---|---|
 | 1. Project setup and FastAPI | Done |
-| 2. Product knowledge base | In progress (JSON catalogue and product API done) |
-| 3–14. Document ingestion, embeddings, database, RAG, LLM, safety, evaluation, fine-tuning, frontend, deployment | Not started |
+| 2. Product knowledge base | Done (initial JSON catalogue and product API) |
+| 3. PDF document ingestion | Next |
+| 4. Text extraction and chunking | Planned |
+| 5. Embeddings | Planned |
+| 6. PostgreSQL and pgvector | Planned |
+| 7. RAG retrieval | Planned |
+| 8. LLM integration | Planned |
+| 9. Safety and guardrails | Planned |
+| 10. RAG evaluation | Planned |
+| 11. Fine-tuning (LoRA/QLoRA) | Planned |
+| 12. Integrate fine-tuned model with RAG | Planned |
+| 13. React frontend | Planned |
+| 14. Docker and deployment | Planned |
 
 Document ingestion, RAG, LLM integration, fine-tuning and the chatbot are **not implemented yet**.
