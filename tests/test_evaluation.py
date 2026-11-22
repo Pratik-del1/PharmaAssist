@@ -347,8 +347,8 @@ def test_save_diagnostics_never_overwrites_an_existing_file(monkeypatch, tmp_pat
 
 # ---------- diagnostics failures never lose answers or the report ----------
 
-def run_live_main(monkeypatch, tmp_path, diagnostics_path):
-    """Run main() in live mode on P01 and A04 with fake retrieval and a fake (timing-out) Groq client."""
+def run_live_main(monkeypatch, tmp_path, diagnostics_path, client=None):
+    """Run main() in live mode on P01 and A04 with fake retrieval and a fake (timing-out by default) Groq client."""
     import app.services.retrieval_service as retrieval_service
 
     class FakeConnection:
@@ -371,7 +371,7 @@ def run_live_main(monkeypatch, tmp_path, diagnostics_path):
             self.calls += 1
             raise TimeoutError("timed out")
 
-    client = TimeoutClient()
+    client = client or TimeoutClient()
     real_generate_answer = answer_service.generate_answer
     monkeypatch.setattr(answer_service, "generate_answer", lambda question, chunks, **kwargs: real_generate_answer(
         question, chunks, client=client, model="test-model", **kwargs))
@@ -425,6 +425,56 @@ def test_diagnostics_are_saved_and_reported_when_nothing_fails(monkeypatch, tmp_
     assert report["diagnostics_file"] == str(diagnostics_path) and "diagnostics_error" not in report
     assert report["diagnostics_summary"]["outcomes"] == {"skipped_product": 1, "timeout": 1}
     assert client.calls == 1
+
+
+STORAGE_QUOTE = "Store below 25 degree C at\nroom temperature with max\ntemperature not exceeding 30\ndegree Celcius."
+STORAGE_ANSWER = ("Store below 25 degree C at room temperature with max temperature not exceeding "
+                  "30 degree Celcius [S1].")
+
+
+class AnsweringClient:
+    """A fake Groq client that returns one valid, grounded A04 storage answer."""
+    def __init__(self):
+        self.chat = self
+        self.completions = self
+        self.calls = 0
+
+    def create(self, **kwargs):
+        from groq.types.chat import ChatCompletion
+        self.calls += 1
+        content = json.dumps({"answer": STORAGE_ANSWER, "abstained": False, "cited_source_ids": ["S1"],
+                              "facts": [{"statement": "Storage", "source_id": "S1", "quote": STORAGE_QUOTE}],
+                              "missing_information": [], "conflicts": []})
+        return ChatCompletion.model_validate({
+            "id": "chatcmpl-1", "object": "chat.completion", "created": 1, "model": "test-model",
+            "choices": [{"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": content}}]})
+
+
+def test_saved_answers_keep_the_validated_evidence_by_case_id(monkeypatch, tmp_path):
+    answers, report, client = run_live_main(monkeypatch, tmp_path, tmp_path / "diagnostics.jsonl",
+                                            client=AnsweringClient())
+    saved = {item["id"]: item["result"] for item in answers}
+    assert saved["A04"]["failure_reason"] is None
+    assert saved["A04"]["evidence"] == [{"statement": "Storage", "source_id": "S1", "quote": STORAGE_QUOTE,
+                                         "chunk_id": 2, "document": "CZARLIV_SYRUP.pdf"}]
+    assert saved["P01"]["abstained"] and saved["P01"]["evidence"] == []     # refused before Groq
+    assert "evidence" not in json.dumps(report)                              # not duplicated in the report
+    diagnostics = [json.loads(line) for line in (tmp_path / "diagnostics.jsonl").read_text().splitlines()]
+    assert all("evidence" not in record and "raw_text_excerpt" not in record for record in diagnostics)
+    assert client.calls == 1
+
+
+def test_evidence_does_not_change_scoring_and_old_answer_files_still_load():
+    old_item = {"answer": STORAGE_ANSWER, "abstained": False, "sources_used": 1, "missing_information": [],
+                "conflicts": [], "failure_reason": None,
+                "citations": [{"chunk_id": 2, "document": "CZARLIV_SYRUP.pdf", "page": 1, "location": "page 1"}]}
+    without_evidence = AnswerResult(**old_item)                              # saved before this change
+    assert without_evidence.evidence == []
+    with_evidence = AnswerResult(**old_item, evidence=[{"statement": "Storage", "source_id": "S1",
+                                                        "quote": STORAGE_QUOTE, "chunk_id": 2,
+                                                        "document": "CZARLIV_SYRUP.pdf"}])
+    case = CASES_BY_ID["A04"]
+    assert score_answer(case, with_evidence, CHUNKS) == score_answer(case, without_evidence, CHUNKS)
 
 
 def test_token_limit_cases_also_recognise_older_gemini_records():

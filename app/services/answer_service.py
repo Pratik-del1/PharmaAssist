@@ -121,6 +121,15 @@ Rules you must always follow:
     b) Keep the source's own wording for medical terms, ingredient names, spellings and clinical
        terminology, both in quotes and when describing the evidence. Never replace them with synonyms,
        corrected spellings or standardised terms.
+    c) Example of splitting. Each fact has one quote, so one long passage becomes several facts
+       with the same source id. If source S1 contains the 360-character passage beginning
+       "May be useful in Hepato-billiary disorders such as", quoting it whole is too long. Split it
+       at a comma; the second quote continues exactly where the first one ends:
+       {"statement": "It May be useful in Hepato-billiary disorders such as Loss of appetite, Constipation, Jaundice, Hepatitis, Obesity, Psoriasis, Cholestatis, Poor metabolism, Borderline diabetes, Fatty lIver, Spleenomegaly, Pancreatitis, Arthritis, Osteoporosis and Chronic Kidney Disease.", "source_id": "S1", "quote": "May be useful in Hepato-billiary disorders such as Loss of appetite,Constipation,Jaundice,Hepatitis,Obesity,Psoriasis,Cholestatis,Poor metabolism,Borderline diabetes,Obesity,Fatty lIver,Spleenomegaly,Pancreatitis,Arthritis,Osteoporosis,Chronic Kidney Disease,"}
+       {"statement": "It May be useful in Poly cystic Ovarian Syndrome(PCOS) and to protect liver toxicity against harmful drugs and chemicals.", "source_id": "S1", "quote": "Poly cystic Ovarian Syndrome(PCOS) and to protect liver toxicity against harmful drugs and chemicals."}
+       Keep the qualifying words ("May be useful in") in every statement that uses the passage, and
+       keep every quote below 300 characters. This example only shows the format: it is not
+       evidence. Use its text only when the same text appears in a supplied source.
 
 Respond with JSON only, matching the required schema."""
 
@@ -149,6 +158,15 @@ class Citation(BaseModel):
     source_url: Optional[str] = None
 
 
+class Evidence(BaseModel):
+    """One validated fact, exactly as the model returned it, plus the chunk its quote comes from."""
+    statement: str
+    source_id: str
+    quote: str
+    chunk_id: int
+    document: str
+
+
 class AnswerResult(BaseModel):
     answer: str
     citations: list[Citation] = Field(default_factory=list)
@@ -158,6 +176,8 @@ class AnswerResult(BaseModel):
     conflicts: list[str] = Field(default_factory=list)
     # None when answered; otherwise why the answer was withheld.
     failure_reason: Optional[str] = None
+    # Only for answers that passed every grounding check and were not withheld; empty otherwise.
+    evidence: list[Evidence] = Field(default_factory=list)
 
 
 class ConfigurationError(RuntimeError):
@@ -415,6 +435,142 @@ def validate_model_answer(model_answer: ModelAnswer, sources: dict, file_label_w
     if unsupported:
         raise AnswerValidationError(f"the answer names {unsupported}, found only in a cited file name")
 
+    validate_terminology(model_answer)
+
+
+# ---------- terminology: the source's own spelling must be kept ----------
+# A generated word that is almost, but not exactly, a word in a quote is treated as a changed term,
+# for example "Cholestatis" -> "cholestasis". Nothing is ever corrected: a change rejects the answer.
+# Only words of 7 or more letters are compared for spelling, so ordinary pairs like "these"/"there"
+# are not flagged. Known remaining false alarms (tested): composition/competition, injection/infection,
+# product/produce, products/produces, provide/provider, provides/provider.
+
+TERM_WORD = re.compile(r"[A-Za-z]+(?:-[A-Za-z]+)*")    # "Hepato-billiary" is one word
+TERM_MIN_LETTERS = 7
+GRAMMATICAL_ENDINGS = ("ing", "es", "ed", "er", "ly", "al", "s", "d", "r")
+
+
+def edit_distance(a: str, b: str) -> int:
+    """Number of single-letter insertions, deletions, substitutions or swaps that turn a into b."""
+    d = [[0] * (len(b) + 1) for _ in range(len(a) + 1)]
+    for i in range(len(a) + 1):
+        d[i][0] = i
+    for j in range(len(b) + 1):
+        d[0][j] = j
+    for i in range(1, len(a) + 1):
+        for j in range(1, len(b) + 1):
+            cost = 0 if a[i - 1] == b[j - 1] else 1
+            d[i][j] = min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost)
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                d[i][j] = min(d[i][j], d[i - 2][j - 2] + 1)   # two neighbouring letters swapped
+    return d[-1][-1]
+
+
+def word_stems(word: str) -> set:
+    """The word plus every form left after removing one grammatical ending ("disorders" -> "disorder")."""
+    stems = {word}
+    for ending in GRAMMATICAL_ENDINGS:
+        if word.endswith(ending) and len(word) - len(ending) >= 4:
+            stems.add(word[:-len(ending)])
+    return stems
+
+
+def only_grammar_differs(a: str, b: str) -> bool:
+    # disorder/disorders, optimized/optimizes, provide/provider
+    return bool(word_stems(a) & word_stems(b))
+
+
+def has_irregular_case(word: str) -> bool:
+    # an upper-case letter right after a lower-case one: "lIver", "IgA", "pH" (not "Kidney" or "PCOS")
+    return re.search(r"[a-z][A-Z]", word) is not None
+
+
+def letters_only(text: str) -> str:
+    return re.sub(r"[^a-z]", "", text.casefold())
+
+
+def separators_only_differ(a: str, b: str) -> bool:
+    # "skin-lightening" vs "skin lightening": same letters and the same word boundaries
+    return re.sub(r"[-\s]+", " ", a.casefold()) == re.sub(r"[-\s]+", " ", b.casefold())
+
+
+def phrase_pattern(phrase: str, flags: int = 0) -> re.Pattern:
+    """Whole-word pattern for a phrase; any spaces or punctuation may separate its words."""
+    return re.compile(r"\b" + r"\W+".join(re.escape(word) for word in phrase.split()) + r"\b", flags)
+
+
+def find_term_changes(text: str, quote: str) -> list:
+    """(source term, generated term) pairs where `text` changes how `quote` writes a term."""
+    changes = []
+    quote_words, text_words = TERM_WORD.findall(quote), TERM_WORD.findall(text)
+    quote_folded = {word.casefold() for word in quote_words}
+    text_folded = {word.casefold() for word in text_words}
+
+    # 1. Irregular capitals must be kept, checked with the word before: "Fatty lIver" -> "fatty liver".
+    plain_words = re.findall(r"[A-Za-z]+", quote)
+    for index, word in enumerate(plain_words):
+        if has_irregular_case(word):
+            phrase = f"{plain_words[index - 1]} {word}" if index else word
+            found = phrase_pattern(phrase, re.IGNORECASE).search(text)
+            if found and not phrase_pattern(phrase).search(text):
+                changes.append((phrase, found.group(0)))
+
+    # 2. Words joined or split: "Poly cystic" -> "polycystic". A hyphen swapped for a space is fine.
+    quote_pairs = list(zip(quote_words, quote_words[1:]))
+    for word in text_words:
+        if word.casefold() in quote_folded:
+            continue
+        for first, second in quote_pairs:
+            if (letters_only(first + second) == letters_only(word) and len(letters_only(word)) >= TERM_MIN_LETTERS
+                    and not separators_only_differ(f"{first} {second}", word)):
+                changes.append((f"{first} {second}", word))
+        for quote_word in quote_words:
+            if "-" in quote_word and letters_only(quote_word) == letters_only(word):
+                changes.append((quote_word, word))
+    for first, second in zip(text_words, text_words[1:]):
+        for quote_word in quote_words:
+            if (letters_only(quote_word) == letters_only(first + second) and quote_word.casefold() not in text_folded
+                    and len(letters_only(quote_word)) >= TERM_MIN_LETTERS
+                    and not separators_only_differ(quote_word, f"{first} {second}")):
+                changes.append((quote_word, f"{first} {second}"))
+
+    # 3. Spelling: a long word that is not in the quote but is 1 edit (2 for 11+ letters) from a quote word.
+    for word in text_words:
+        generated = word.casefold().replace("-", "")
+        if word.casefold() in quote_folded or len(generated) < TERM_MIN_LETTERS:
+            continue
+        for quote_word in quote_words:
+            source = quote_word.casefold().replace("-", "")
+            if len(source) < TERM_MIN_LETTERS or source == generated or only_grammar_differs(source, generated):
+                continue
+            allowed = 2 if min(len(source), len(generated)) >= 11 else 1
+            if edit_distance(source, generated) <= allowed:
+                changes.append((quote_word, word))
+
+    return sorted(set(changes))
+
+
+def validate_terminology(model_answer: ModelAnswer) -> None:
+    """Reject statements or answers that change how their sources write a term."""
+    # Each statement is compared only with its own quote.
+    for fact in model_answer.facts:
+        changes = find_term_changes(fact.statement, fact.quote)
+        if changes:
+            source_term, generated = changes[0]
+            raise AnswerValidationError(f"a statement changes the source wording '{source_term}' to '{generated}'")
+
+    # The answer is compared with every quote, but a near-miss of source X's term is accepted only when
+    # source X's own quotes contain the exact generated spelling. Another source can never make it acceptable.
+    quotes_by_source = {}
+    for fact in model_answer.facts:
+        quotes_by_source.setdefault(fact.source_id, []).append(fact.quote)
+    for fact in model_answer.facts:
+        for source_term, generated in find_term_changes(model_answer.answer, fact.quote):
+            pattern = phrase_pattern(generated)
+            if not any(pattern.search(quote) for quote in quotes_by_source[fact.source_id]):
+                raise AnswerValidationError(
+                    f"the answer changes the wording '{source_term}' of {fact.source_id} to '{generated}'")
+
 
 # ---------- diagnostics ----------
 # Diagnostic records never contain the prompt, the retrieved source chunks, request headers,
@@ -663,6 +819,14 @@ def generate_answer(
         failure_reason = None
         abstained = False
 
+    # Keep the validated facts for auditing, unchanged. Withheld answers keep none.
+    evidence = []
+    if not abstained:
+        for fact in model_answer.facts:
+            chunk = sources[fact.source_id]["chunk"]
+            evidence.append(Evidence(statement=fact.statement, source_id=fact.source_id, quote=fact.quote,
+                                     chunk_id=chunk.chunk_id, document=chunk.file_name))
+
     return finish_record(diagnostics, record, AnswerResult(
         answer=model_answer.answer,
         citations=citations,
@@ -671,4 +835,5 @@ def generate_answer(
         missing_information=model_answer.missing_information,
         conflicts=model_answer.conflicts,
         failure_reason=failure_reason,
+        evidence=evidence,
     ))

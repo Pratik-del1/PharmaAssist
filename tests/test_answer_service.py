@@ -709,6 +709,291 @@ def test_long_passage_can_be_supported_by_several_shorter_exact_quotes():
     assert not accepted.abstained and accepted.failure_reason is None   # two exact quotes, each within the limit
 
 
+def prompt_example_facts() -> list[dict]:
+    """The worked example in rule 15 c): one JSON fact per line of the prompt."""
+    lines = [line.strip() for line in SYSTEM_PROMPT.splitlines()]
+    return [json.loads(line) for line in lines if line.startswith('{"statement"')]
+
+
+def test_prompt_contains_a_worked_example_of_splitting_a_long_quote():
+    prompt = " ".join(SYSTEM_PROMPT.lower().split())
+    assert "c) example of splitting" in prompt
+    assert "one long passage becomes several facts with the same source id" in prompt
+    assert "the second quote continues exactly where the first one ends" in prompt
+    assert "this example only shows the format: it is not evidence" in prompt
+    assert answer_service.MAX_QUOTE_CHARS == 300                          # the limit itself is unchanged
+    facts = prompt_example_facts()
+    assert len(facts) == 2
+    assert {fact["source_id"] for fact in facts} == {"S1"}                # both quotes come from the same source
+
+
+def test_worked_example_quotes_are_exact_contiguous_parts_of_the_leaflet():
+    first, second = [fact["quote"] for fact in prompt_example_facts()]
+    passage = " ".join(USES_TEXT.split("\n", 1)[1].split())              # the real leaflet passage, 360 characters
+    assert len(passage) == 360
+    assert len(first) == 259 and len(second) == 101                       # each below 300
+    for quote in (first, second):
+        assert answer_service.normalize(quote) in answer_service.normalize(USES_TEXT)
+    assert first + second == passage                                      # nothing invented, duplicated or left out
+    assert first.startswith("May be useful in Hepato-billiary disorders such as")
+
+
+def test_worked_example_keeps_the_qualifier_and_the_original_spelling():
+    facts = prompt_example_facts()
+    for fact in facts:
+        assert "May be useful in" in fact["statement"]                    # no context-free product claim
+    quotes = " ".join(fact["quote"] for fact in facts)
+    statements = " ".join(fact["statement"] for fact in facts)
+    for term in ["Hepato-billiary", "Cholestatis", "Fatty lIver", "Poly cystic"]:
+        assert term in quotes and term in statements
+    # Case-sensitive: lower-casing "Fatty lIver" would itself produce "fatty liver".
+    for corrected in ["hepatobiliary", "Hepatobiliary", "cholestasis", "Cholestasis",
+                      "fatty liver", "Fatty liver", "polycystic", "Polycystic"]:
+        assert corrected not in statements
+
+
+def test_validator_accepts_the_worked_example_and_rejects_the_whole_passage():
+    facts = prompt_example_facts()
+    answer = " ".join(f"{fact['statement']} [S1]" for fact in facts)
+    accepted, _ = ask("What is CZARLIV used for?", reply(answer, cited=["S1"], facts=[
+        (fact["statement"], fact["source_id"], fact["quote"]) for fact in facts]))
+    assert not accepted.abstained and accepted.failure_reason is None
+    whole = facts[0]["quote"] + facts[1]["quote"]                         # 360 characters in one quote
+    rejected, _ = ask("What is CZARLIV used for?", reply(answer, cited=["S1"], facts=[("Uses", "S1", whole)]))
+    assert rejected.failure_reason == "grounding_check_failed"
+
+
+# ----- validated evidence kept on answered results (for auditing) -----
+
+def test_answered_result_keeps_every_validated_fact_exactly():
+    first, second = [fact["quote"] for fact in prompt_example_facts()]
+    facts = [("It May be useful in Hepato-billiary disorders such as Loss of appetite.", "S1", first),
+             ("It May be useful in Poly cystic Ovarian Syndrome(PCOS).", "S1", second),
+             ("The dosage is 10 ml twice a day or as directed by the physician.", "S2",
+              "10 ml twice a day or as directed\nby the physician")]          # line break kept as returned
+    answer = ("CZARLIV SYRUP May be useful in Hepato-billiary disorders [S1]. "
+              "The dosage is 10 ml twice a day or as directed by the physician [S2].")
+    result, _ = ask("What is CZARLIV used for and what is the dose?", reply(answer, cited=["S1", "S2"], facts=facts))
+    assert not result.abstained and result.failure_reason is None
+    assert [item.model_dump() for item in result.evidence] == [
+        {"statement": facts[0][0], "source_id": "S1", "quote": first, "chunk_id": 1, "document": "CZARLIV_SYRUP.pdf"},
+        {"statement": facts[1][0], "source_id": "S1", "quote": second, "chunk_id": 1, "document": "CZARLIV_SYRUP.pdf"},
+        {"statement": facts[2][0], "source_id": "S2", "quote": facts[2][2], "chunk_id": 2,
+         "document": "CZARLIV_SYRUP.pdf"},
+    ]
+    assert len(result.evidence[0].quote) == 259 and len(result.evidence[1].quote) == 101   # nothing truncated
+    assert result.model_dump()["evidence"] == [item.model_dump() for item in result.evidence]   # saved by the runner
+
+
+def test_long_statement_and_300_character_quote_are_kept_without_truncation():
+    quote = " ".join(USES_TEXT.split("\n", 1)[1].split())[:300]               # exactly at the limit
+    statement = "It May be useful in Hepato-billiary disorders. " * 20            # about 940 characters
+    result, _ = ask("What is CZARLIV used for?", reply(
+        "CZARLIV SYRUP May be useful in Hepato-billiary disorders [S1].", cited=["S1"],
+        facts=[(statement, "S1", quote)]))
+    assert result.failure_reason is None
+    assert result.evidence[0].quote == quote and len(result.evidence[0].quote) == 300
+    assert result.evidence[0].statement == statement
+
+
+def test_grounding_failure_keeps_its_diagnostics_and_has_no_evidence():
+    whole = " ".join(USES_TEXT.split("\n", 1)[1].split())                  # 360 characters in one quote
+    records = []
+    result = generate_answer("What is CZARLIV used for?", CZARLIV_CHUNKS, known_products=KNOWN_PRODUCTS,
+                             client=FakeClient(reply("It May be useful in Hepato-billiary disorders [S1].",
+                                                     cited=["S1"], facts=[("Uses", "S1", whole)])),
+                             model="test-model", diagnostics=records)
+    assert result.failure_reason == "grounding_check_failed" and result.evidence == []
+    assert records[0]["grounding_check"] == "failed: a supporting quote is too long"
+    assert whole in json.loads(records[0]["raw_text_excerpt"])["facts"][0]["quote"]
+    assert "evidence" not in records[0]                                    # diagnostics format unchanged
+
+
+def test_successful_answer_adds_nothing_to_diagnostics():
+    records = []
+    generate_answer("What is CZARLIV used for?", CZARLIV_CHUNKS, known_products=KNOWN_PRODUCTS,
+                    client=FakeClient(reply("CZARLIV SYRUP May be useful in Hepato-billiary disorders [S1].",
+                                            cited=["S1"], facts=[("Uses", "S1", "May be useful in Hepato-billiary")])),
+                    model="test-model", diagnostics=records)
+    assert records[0]["grounding_check"] == "passed"
+    assert "raw_text_excerpt" not in records[0] and "evidence" not in records[0]
+
+
+def test_withheld_answers_never_carry_evidence():
+    quote = ("Uses", "S1", "May be useful in Hepato-billiary disorders")
+    refusal, _ = ask("What are the side effects?", reply(
+        "The leaflet does not describe side effects.", cited=["S1"], abstained=True, facts=[quote],
+        missing=["Side effects"]))
+    assert refusal.abstained and refusal.failure_reason == "insufficient_evidence" and refusal.evidence == []
+    conflict, _ = ask("What is CZARLIV used for?", reply(
+        "The sources disagree [S1].", cited=["S1"], facts=[quote], conflicts=["Uses differ"]))
+    assert conflict.abstained and conflict.failure_reason == "conflicting_evidence" and conflict.evidence == []
+    unavailable, _ = ask("What is CZARLIV used for?", error=TimeoutError("timed out"))
+    assert unavailable.failure_reason == "model_unavailable" and unavailable.evidence == []
+    no_sources, _ = ask("What is CZARLIV used for?", chunks=[])
+    assert no_sources.failure_reason == "no_evidence" and no_sources.evidence == []
+
+
+# ----- terminology: the source's own spelling must be kept -----
+
+USES_PASSAGE = " ".join(USES_TEXT.split("\n", 1)[1].split())     # the real leaflet passage, line breaks as spaces
+
+
+@pytest.mark.parametrize("generated, source_term", [
+    ("It may help cholestasis.", "Cholestatis"),
+    ("It may help fatty liver.", "Fatty lIver"),
+    ("It may help polycystic ovarian syndrome.", "Poly cystic"),
+    ("It may help hepatobiliary disorders.", "Hepato-billiary"),
+    ("It may help splenomegaly.", "Spleenomegaly"),
+])
+def test_changed_leaflet_terms_are_detected(generated, source_term):
+    assert [source for source, _ in answer_service.find_term_changes(generated, USES_TEXT)] == [source_term]
+
+
+def test_changed_storage_spelling_is_detected():
+    assert answer_service.find_term_changes("Store below 30 degree Celsius.", COMPOSITION_TEXT) == [
+        ("Celcius", "Celsius")]
+
+
+@pytest.mark.parametrize("generated", [
+    "It may help chronic kidney disease.",                          # ordinary capitalisation change
+    "It May be useful in a Hepato-billiary disorder.",              # grammatical ending
+    "It may help Hepato billiary disorders.",                       # hyphen swapped for a space
+    "It may help jaundice.",                                        # other source terms simply not repeated
+    "It May be useful in Cholestatis, Fatty lIver and Poly cystic Ovarian Syndrome(PCOS).",   # source wording
+    "Store below 25°C.",                                            # left to the number checks
+])
+def test_harmless_wording_is_accepted(generated):
+    assert answer_service.find_term_changes(generated, USES_TEXT + "\n" + COMPOSITION_TEXT) == []
+
+
+def test_grammatical_endings_and_hyphen_changes_are_accepted():
+    assert answer_service.find_term_changes("Optimizes cellular health", "Optimized cellular health") == []
+    assert answer_service.find_term_changes("Life Med invites you", "we invite you") == []
+    assert answer_service.find_term_changes("promotes skin lightening", "promotes skin-lightening") == []
+
+
+def test_irregular_capitals_must_be_kept():
+    quote = "Antibodies IgA,IgG & IgM and a pH of 7."
+    assert answer_service.find_term_changes("Antibodies IgA,IgG & IgM and a pH of 7.", quote) == []   # unchanged
+    assert answer_service.find_term_changes("Antibodies IgA, IgG and IgM.", quote) == []             # spacing only
+    assert answer_service.find_term_changes("Antibodies IGA and a PH of 7.", quote) == [
+        ("Antibodies IgA", "Antibodies IGA"), ("a pH", "a PH")]
+
+
+def test_fatty_liver_is_rejected_but_protect_liver_is_accepted():
+    quote = "Fatty lIver,Spleenomegaly and to protect liver toxicity"
+    assert answer_service.find_term_changes("It may protect liver toxicity.", quote) == []
+    assert answer_service.find_term_changes("It may help fatty liver.", quote) == [("Fatty lIver", "fatty liver")]
+
+
+@pytest.mark.parametrize("source, generated, rejected", [
+    ("Competition", "composition", True),
+    ("infection", "injection", True),
+    ("produce", "product", True),
+    ("produces", "products", True),
+    ("provider", "provide", False),     # accepted: "er" counts as a grammatical ending
+    ("provider", "provides", False),
+])
+def test_known_false_alarm_pairs_are_documented(source, generated, rejected):
+    """Ordinary words one letter apart. The first four are still rejected (a refusal, never a wrong answer)."""
+    changes = answer_service.find_term_changes(f"It mentions the {generated} here.", f"It mentions the {source} here.")
+    assert changes == ([(source, generated)] if rejected else [])
+
+
+OTHER_SOURCE = chunk(40, "Cholestasis is a reduction of bile flow; it is a liver condition.",
+                     file_name="liver_notes.pdf", product=None, document_id=7, source_type="training_manual")
+
+
+def test_statement_that_changes_its_quote_is_refused_with_diagnostics():
+    records = []
+    result = generate_answer("What is CZARLIV used for?", CZARLIV_CHUNKS, known_products=KNOWN_PRODUCTS,
+                             client=FakeClient(reply("It May be useful in Hepato-billiary disorders [S1].",
+                                                     cited=["S1"], facts=[("It may help cholestasis.", "S1",
+                                                                           "Psoriasis,Cholestatis,Poor")])),
+                             model="test-model", diagnostics=records)
+    assert result.abstained and result.failure_reason == "grounding_check_failed"
+    assert result.answer == REJECTED_MESSAGE and result.evidence == []
+    assert records[0]["grounding_check"] == ("failed: a statement changes the source wording "
+                                             "'Cholestatis' to 'cholestasis'")
+    assert "raw_text_excerpt" in records[0]
+
+
+def test_answer_that_changes_a_term_is_refused_even_if_the_statement_is_exact():
+    records = []
+    result = generate_answer("What is CZARLIV used for?", CZARLIV_CHUNKS, known_products=KNOWN_PRODUCTS,
+                             client=FakeClient(reply("CZARLIV SYRUP may be useful in cholestasis [S1].", cited=["S1"],
+                                                     facts=[("It May be useful in Cholestatis.", "S1",
+                                                             "Psoriasis,Cholestatis,Poor")])),
+                             model="test-model", diagnostics=records)
+    assert result.failure_reason == "grounding_check_failed" and result.answer == REJECTED_MESSAGE
+    assert records[0]["grounding_check"] == ("failed: the answer changes the wording 'Cholestatis' of S1 "
+                                             "to 'cholestasis'")
+
+
+def test_real_r14_4_answer_is_now_refused():
+    answer = ("CZARLIV SYRUP may be useful in Hepato-billiary disorders such as loss of appetite, constipation, "
+              "jaundice, hepatitis, obesity, psoriasis, cholestasis, poor metabolism, borderline diabetes, fatty "
+              "liver, spleenomegaly, pancreatitis, arthritis, osteoporosis, chronic kidney disease, and polycystic "
+              "ovarian syndrome (PCOS). It also may protect liver toxicity against harmful drugs and chemicals.")
+    first, second = [fact["quote"] for fact in prompt_example_facts()]
+    result, _ = ask("What are the benefits of CZARLIV syrup?", reply(answer, cited=["S1"], facts=[
+        ("It May be useful in Hepato-billiary disorders.", "S1", first),
+        ("It May be useful in Poly cystic Ovarian Syndrome(PCOS).", "S1", second)]))
+    assert result.failure_reason == "grounding_check_failed"
+
+
+@pytest.mark.parametrize("answer", [
+    "It may help cholestasis, reduced bile flow.",          # lower case
+    "Cholestasis may improve, with reduced bile flow.",     # capitalised exactly as the other source writes it
+])
+def test_spelling_from_an_unrelated_source_never_validates_a_respelling(answer):
+    records = []
+    result = generate_answer("What is CZARLIV used for?", CZARLIV_CHUNKS + [OTHER_SOURCE],
+                             known_products=KNOWN_PRODUCTS, model="test-model", diagnostics=records,
+                             client=FakeClient(reply(answer, cited=["S1", "S3"], facts=[
+                                 ("It May be useful in Cholestatis.", "S1", "Psoriasis,Cholestatis,Poor"),
+                                 ("Cholestasis is a reduction of bile flow.", "S3",
+                                  "Cholestasis is a reduction of bile flow")])))
+    assert result.failure_reason == "grounding_check_failed"
+    assert records[0]["grounding_check"].startswith("failed: the answer changes the wording 'Cholestatis' of S1")
+
+
+def test_sources_with_conflicting_spellings_fail_closed():
+    chunks = [chunk(1, "Store below 30 degree Celcius.", file_name="leaflet_old.pdf"),
+              chunk(2, "Store below 30 degree Celsius.", file_name="leaflet_new.pdf")]
+    records = []
+    result = generate_answer("How should CZARLIV be stored?", chunks, known_products=KNOWN_PRODUCTS,
+                             model="test-model", diagnostics=records, client=FakeClient(reply(
+                                 "The newer leaflet says store below 30 degree Celsius [S2].", cited=["S1", "S2"],
+                                 facts=[("Store below 30 degree Celcius.", "S1", "Store below 30 degree Celcius."),
+                                        ("Store below 30 degree Celsius.", "S2", "Store below 30 degree Celsius.")])))
+    assert result.failure_reason == "grounding_check_failed"
+    # S2 spells it "Celsius", but S1's "Celcius" is a near-miss and S1 never writes "Celsius": fail closed.
+    assert records[0]["grounding_check"] == "failed: the answer changes the wording 'Celcius' of S1 to 'Celsius'"
+
+
+def test_answer_with_source_wording_passes_and_records_evidence_unchanged():
+    first, second = [fact["quote"] for fact in prompt_example_facts()]
+    answer = ("CZARLIV SYRUP May be useful in Hepato-billiary disorders such as Cholestatis and Fatty lIver [S1]. "
+              "It May be useful in Poly cystic Ovarian Syndrome(PCOS) and to protect liver toxicity against "
+              "harmful drugs and chemicals [S1].")
+    facts = [("It May be useful in Cholestatis and Fatty lIver.", "S1", first),
+             ("It May be useful in Poly cystic Ovarian Syndrome(PCOS).", "S1", second)]
+    result, _ = ask("What is CZARLIV used for?", reply(answer, cited=["S1"], facts=facts))
+    assert not result.abstained and result.failure_reason is None and result.answer == answer
+    assert [(item.statement, item.source_id, item.quote) for item in result.evidence] == facts
+
+
+def test_refusal_with_changed_wording_stays_a_refusal():
+    result, _ = ask("What are the side effects of CZARLIV?", reply(
+        "The leaflet only says it may help cholestasis; it does not list side effects.", cited=["S1"],
+        abstained=True, facts=[("It May be useful in Cholestatis.", "S1", "Psoriasis,Cholestatis,Poor")],
+        missing=["Side effects"]))
+    assert result.abstained and result.failure_reason == "insufficient_evidence"
+    assert result.answer == NO_EVIDENCE_MESSAGE      # the unverified wording is never shown
+
+
 # ---------- conflicting evidence ----------
 
 def test_conflicting_sources_are_reported_not_resolved():
