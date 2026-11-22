@@ -1,0 +1,191 @@
+{
+  "deterministic": {
+    "retrieval": {
+      "cases": 3,
+      "hit_at_1": 0.0,
+      "hit_at_k": 1.0,
+      "mean_reciprocal_rank": 0.5
+    },
+    "answers": {
+      "cases": 2,
+      "answer_correctness": 0.0,
+      "abstention_accuracy": 0.0,
+      "answered_when_should_abstain": 0,
+      "abstained_when_should_answer": 2,
+      "unsupported_claim_rate": null,
+      "numerical_relationship_errors": 0,
+      "wording_preservation": null,
+      "citation_precision": null,
+      "citation_coverage": null,
+      "forbidden_content_cases": 0
+    }
+  },
+  "model_judged": {
+    "status": "not run",
+    "note": "No model judge is configured. Model-judged scores (for example faithfulness rated by an LLM) would be reported here separately and are not ground truth."
+  },
+  "cases": [
+    {
+      "id": "A01",
+      "category": "answerable_ingredients",
+      "retrieval": {
+        "first_relevant_rank": 2,
+        "retrieved": 2,
+        "top_similarity": 0.7648
+      },
+      "top_similarity": 0.7648,
+      "answer": {
+        "id": "A01",
+        "category": "answerable_ingredients",
+        "expected_behavior": "answer",
+        "abstained": true,
+        "failure_reason": "grounding_check_failed",
+        "correct": false,
+        "forbidden_hits": [],
+        "unsupported_numbers": [],
+        "unsupported_reference_quantities": [],
+        "wording_preserved": null,
+        "citation_precision": null,
+        "citation_coverage": null,
+        "missing_terms": [
+          "Picrorhiza Kurroa",
+          "Terminalia Chebula",
+          "Phyllanthus Urinaria",
+          "Tinospora Cordifolia",
+          "Andrographis Paniculata",
+          "Boerhaevia Diffusa",
+          "Eclipta Alba",
+          "Cichorium Intybus",
+          "Tephrosia Purpurea",
+          "Fumaria Offcinalis"
+        ],
+        "wrong_pairs": [],
+        "not_preserved": [],
+        "missing_disclaimer": false
+      }
+    },
+    {
+      "id": "R02",
+      "category": "strength_relationship",
+      "retrieval": {
+        "first_relevant_rank": 2,
+        "retrieved": 2,
+        "top_similarity": 0.694
+      },
+      "top_similarity": 0.694,
+      "answer": {
+        "id": "R02",
+        "category": "strength_relationship",
+        "expected_behavior": "answer",
+        "abstained": true,
+        "failure_reason": "grounding_check_failed",
+        "correct": false,
+        "forbidden_hits": [],
+        "unsupported_numbers": [],
+        "unsupported_reference_quantities": [],
+        "wording_preserved": null,
+        "citation_precision": null,
+        "citation_coverage": null,
+        "missing_terms": [
+          "Eclipta Alba",
+          "Cichorium Intybus",
+          "Tephrosia Purpurea"
+        ],
+        "wrong_pairs": [],
+        "not_preserved": [],
+        "missing_disclaimer": false
+      }
+    },
+    {
+      "id": "M01",
+      "category": "missing_reference_quantity",
+      "retrieval": {
+        "first_relevant_rank": 2,
+        "retrieved": 2,
+        "top_similarity": 0.6864
+      },
+      "top_similarity": 0.6864,
+      "answer": "missing"
+    }
+  ],
+  "settings": {
+    "top_k": 5,
+    "min_similarity": null,
+    "mode": "live",
+    "provider": "groq",
+    "model": "openai/gpt-oss-120b",
+    "reasoning_effort": "low",
+    "max_completion_tokens": 4096,
+    "temperature": 0,
+    "max_retries": 0,
+    "cases": [
+      "A01",
+      "R02",
+      "M01"
+    ]
+  },
+  "top_similarity_by_expected_behavior": {
+    "answer": {
+      "min": 0.694,
+      "max": 0.7648,
+      "cases": 2
+    },
+    "abstain": {
+      "min": 0.6864,
+      "max": 0.6864,
+      "cases": 1
+    }
+  },
+  "http_requests_sent": 2,
+  "stop_reason": "TPM guard: remaining 4018 < worst case 5345",
+  "diagnostics_summary": {
+    "records": 3,
+    "requests_made": 2,
+    "outcomes": {
+      "response": 2,
+      "not_run": 1
+    },
+    "http_status": {},
+    "error_class": {},
+    "finish_reason": {
+      "stop": 2
+    },
+    "json_parse": {
+      "ok": 2
+    },
+    "pydantic_validation": {
+      "ok": 2
+    },
+    "failure_reason": {
+      "grounding_check_failed": 2
+    },
+    "token_limit_cases": [],
+    "tokens": {
+      "prompt": {
+        "min": 1242,
+        "max": 1249,
+        "mean": 1245.5,
+        "responses": 2
+      },
+      "completion": {
+        "min": 580,
+        "max": 1580,
+        "mean": 1080.0,
+        "responses": 2
+      },
+      "reasoning": {
+        "min": 63,
+        "max": 245,
+        "mean": 154.0,
+        "responses": 2
+      },
+      "total": {
+        "min": 1829,
+        "max": 2822,
+        "mean": 2325.5,
+        "responses": 2
+      }
+    }
+  },
+  "diagnostics_file": "evaluation/results/groq_batch1_diagnostics.jsonl"
+}

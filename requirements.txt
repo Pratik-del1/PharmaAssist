@@ -8,3 +8,7 @@ pymupdf>=1.26,<1.27
 python-docx>=1.2,<2
 sentence-transformers>=5.1,<5.2
 torch>=2.8,<2.9
+psycopg[binary]>=3.2,<3.3
+pgvector>=0.4,<0.5
+groq>=1.0,<1.1
+streamlit==1.50.0   # 1.50 is the last release for Python 3.9; it needs packaging<26

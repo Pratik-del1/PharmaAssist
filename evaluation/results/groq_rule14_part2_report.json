@@ -1,0 +1,150 @@
+{
+  "deterministic": {
+    "retrieval": {
+      "cases": 1,
+      "hit_at_1": 1.0,
+      "hit_at_k": 1.0,
+      "mean_reciprocal_rank": 1.0
+    },
+    "answers": {
+      "cases": 2,
+      "answer_correctness": 1.0,
+      "abstention_accuracy": 1.0,
+      "answered_when_should_abstain": 0,
+      "abstained_when_should_answer": 0,
+      "unsupported_claim_rate": null,
+      "numerical_relationship_errors": 0,
+      "wording_preservation": null,
+      "citation_precision": null,
+      "citation_coverage": null,
+      "forbidden_content_cases": 0
+    }
+  },
+  "model_judged": {
+    "status": "not run",
+    "note": "No model judge is configured. Model-judged scores (for example faithfulness rated by an LLM) would be reported here separately and are not ground truth."
+  },
+  "cases": [
+    {
+      "id": "R14-3",
+      "category": "product_identity",
+      "retrieval": null,
+      "top_similarity": 0.568,
+      "answer": {
+        "id": "R14-3",
+        "category": "product_identity",
+        "expected_behavior": "abstain",
+        "abstained": true,
+        "failure_reason": "insufficient_evidence",
+        "correct": true,
+        "forbidden_hits": [],
+        "unsupported_numbers": [],
+        "unsupported_reference_quantities": [],
+        "wording_preserved": null,
+        "citation_precision": null,
+        "citation_coverage": null,
+        "missing_terms": [],
+        "wrong_pairs": [],
+        "not_preserved": [],
+        "missing_disclaimer": false
+      }
+    },
+    {
+      "id": "R14-4",
+      "category": "answerable_uses",
+      "retrieval": {
+        "first_relevant_rank": 1,
+        "retrieved": 5,
+        "top_similarity": 0.8352
+      },
+      "top_similarity": 0.8352,
+      "answer": {
+        "id": "R14-4",
+        "category": "answerable_uses",
+        "expected_behavior": "either",
+        "abstained": true,
+        "failure_reason": "grounding_check_failed",
+        "correct": true,
+        "forbidden_hits": [],
+        "unsupported_numbers": [],
+        "unsupported_reference_quantities": [],
+        "wording_preserved": null,
+        "citation_precision": null,
+        "citation_coverage": null,
+        "missing_terms": [],
+        "wrong_pairs": [],
+        "not_preserved": [
+          "May be useful in"
+        ],
+        "missing_disclaimer": false
+      }
+    }
+  ],
+  "settings": {
+    "top_k": 5,
+    "min_similarity": null,
+    "mode": "live"
+  },
+  "top_similarity_by_expected_behavior": {
+    "abstain": {
+      "min": 0.568,
+      "max": 0.568,
+      "cases": 1
+    },
+    "either": {
+      "min": 0.8352,
+      "max": 0.8352,
+      "cases": 1
+    }
+  },
+  "diagnostics_summary": {
+    "records": 2,
+    "requests_made": 2,
+    "outcomes": {
+      "response": 2
+    },
+    "http_status": {},
+    "error_class": {},
+    "finish_reason": {
+      "stop": 2
+    },
+    "json_parse": {
+      "ok": 2
+    },
+    "pydantic_validation": {
+      "ok": 2
+    },
+    "failure_reason": {
+      "insufficient_evidence": 1,
+      "grounding_check_failed": 1
+    },
+    "token_limit_cases": [],
+    "tokens": {
+      "prompt": {
+        "min": 2155,
+        "max": 2320,
+        "mean": 2237.5,
+        "responses": 2
+      },
+      "completion": {
+        "min": 119,
+        "max": 388,
+        "mean": 253.5,
+        "responses": 2
+      },
+      "reasoning": {
+        "min": 35,
+        "max": 43,
+        "mean": 39.0,
+        "responses": 2
+      },
+      "total": {
+        "min": 2439,
+        "max": 2543,
+        "mean": 2491.0,
+        "responses": 2
+      }
+    }
+  },
+  "diagnostics_file": "evaluation/results/groq_rule14_part2_diagnostics.jsonl"
+}

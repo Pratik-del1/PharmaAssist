@@ -1,0 +1,134 @@
+{
+  "deterministic": {
+    "answers": {
+      "cases": 2,
+      "answer_correctness": 0.5,
+      "abstention_accuracy": 0.5,
+      "answered_when_should_abstain": 1,
+      "abstained_when_should_answer": 0,
+      "unsupported_claim_rate": 1.0,
+      "numerical_relationship_errors": 0,
+      "wording_preservation": null,
+      "citation_precision": null,
+      "citation_coverage": null,
+      "forbidden_content_cases": 1
+    }
+  },
+  "model_judged": {
+    "status": "not run",
+    "note": "No model judge is configured. Model-judged scores (for example faithfulness rated by an LLM) would be reported here separately and are not ground truth."
+  },
+  "cases": [
+    {
+      "id": "R14-1",
+      "category": "absent_side_effects",
+      "retrieval": null,
+      "top_similarity": 0.8093,
+      "answer": {
+        "id": "R14-1",
+        "category": "absent_side_effects",
+        "expected_behavior": "abstain",
+        "abstained": true,
+        "failure_reason": "insufficient_evidence",
+        "correct": true,
+        "forbidden_hits": [],
+        "unsupported_numbers": [],
+        "unsupported_reference_quantities": [],
+        "wording_preserved": null,
+        "citation_precision": null,
+        "citation_coverage": null,
+        "missing_terms": [],
+        "wrong_pairs": [],
+        "not_preserved": [],
+        "missing_disclaimer": false
+      }
+    },
+    {
+      "id": "R14-2",
+      "category": "product_identity",
+      "retrieval": null,
+      "top_similarity": 0.6966,
+      "answer": {
+        "id": "R14-2",
+        "category": "product_identity",
+        "expected_behavior": "abstain",
+        "abstained": false,
+        "failure_reason": null,
+        "correct": false,
+        "forbidden_hits": [
+          "re:x\\s*gluta[^.]*\\b(detox|immun|skin|lighten|energy|antioxidant)"
+        ],
+        "unsupported_numbers": [],
+        "unsupported_reference_quantities": [],
+        "wording_preserved": null,
+        "citation_precision": null,
+        "citation_coverage": null,
+        "missing_terms": [],
+        "wrong_pairs": [],
+        "not_preserved": [],
+        "missing_disclaimer": false
+      }
+    }
+  ],
+  "settings": {
+    "top_k": 5,
+    "min_similarity": null,
+    "mode": "live"
+  },
+  "top_similarity_by_expected_behavior": {
+    "abstain": {
+      "min": 0.6966,
+      "max": 0.8093,
+      "cases": 2
+    }
+  },
+  "diagnostics_summary": {
+    "records": 2,
+    "requests_made": 2,
+    "outcomes": {
+      "response": 2
+    },
+    "http_status": {},
+    "error_class": {},
+    "finish_reason": {
+      "stop": 2
+    },
+    "json_parse": {
+      "ok": 2
+    },
+    "pydantic_validation": {
+      "ok": 2
+    },
+    "failure_reason": {
+      "insufficient_evidence": 1
+    },
+    "token_limit_cases": [],
+    "tokens": {
+      "prompt": {
+        "min": 2191,
+        "max": 2287,
+        "mean": 2239.0,
+        "responses": 2
+      },
+      "completion": {
+        "min": 287,
+        "max": 663,
+        "mean": 475.0,
+        "responses": 2
+      },
+      "reasoning": {
+        "min": 44,
+        "max": 50,
+        "mean": 47.0,
+        "responses": 2
+      },
+      "total": {
+        "min": 2574,
+        "max": 2854,
+        "mean": 2714.0,
+        "responses": 2
+      }
+    }
+  },
+  "diagnostics_file": "evaluation/results/groq_rule14_part1_diagnostics.jsonl"
+}
